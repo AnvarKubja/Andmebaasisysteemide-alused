@@ -579,3 +579,36 @@ WHERE Id = 10
 
 --igast reast vıtab esimesena mitte nulli v‰‰rtuse ja paneb selle Name veergu
 --kasutada coalsece
+SELECT Id, COALESCE(FirstName, MiddleName, LastName) As Name
+from Employees
+
+create table IndianCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+create table UKCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+insert into IndianCustomers (Name, Email)
+values ('Raj', 'R@R.com'),
+('Sam', 'S@S.com')
+
+insert into UKCustomers (Name, Email)
+values ('Ben', 'B@B.com'),
+('Sam', 'S@S.com')
+
+SELECT * from IndianCustomers
+SELECT * from UKCustomers
+
+--kasutate union all
+--kahe tabeli andmete vaatamiseks
+SELECT Name, Email FROM IndianCustomers
+UNION ALL
+SELECT Name, Email FROM UKCustomers
