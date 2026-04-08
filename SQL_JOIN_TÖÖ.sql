@@ -1,47 +1,31 @@
----CROSS JOIN
----Tagastab kõik omavahel olevad read
-SELECT c.FirstName, p.EnglishProductName
-FROM DimCustomer c
-CROSS JOIN DimProduct p
+-- CROSS JOIN kombineerib kõik read esimesest tabelist kõigi ridadega teisest tabelist
+SELECT c.CustomerID, c.FirstName, s.SalesOrderID
+FROM SalesLT.Customer c
+CROSS JOIN SalesLT.SalesOrderHeader s;
 
----INNER JOIN
----Tagastab ainult kahes tabelis olevate ridade tabelid. Mitte kattuvad read on eemaldatud.
-SELECT c.FirstName, c.LastName, s.SalesAmount
-FROM FactInternetSales s
-INNER JOIN DimCustomer c
-ON s.CustomerKey = c.CustomerKey
+-- INNER JOIN tagastab ainult read, kus mõlemas tabelis on vaste
+SELECT h.SalesOrderID, h.OrderDate, d.ProductID
+FROM SalesLT.SalesOrderHeader h
+INNER JOIN SalesLT.SalesOrderDetail d
+ON h.SalesOrderID = d.SalesOrderID;
 
----LEFT JOIN
----Tagastab kattuvad read ja kõik mitte-kattuvad read vasakust tabelist
-SELECT c.FirstName, c.LastName, s.SalesAmount
-FROM DimCustomer c
-LEFT JOIN FactInternetSales s
-ON c.CustomerKey = s.CustomerKey
+-- LEFT JOIN tagastab kõik esimesest tabelist read ja lisab teise tabeli andmed, kui vaste olemas, muidu NULL
+SELECT c.CustomerID, c.FirstName, s.SalesOrderID
+FROM SalesLT.Customer c
+LEFT JOIN SalesLT.SalesOrderHeader s
+ON c.CustomerID = s.CustomerID;
 
----RIGHT JOIN
----Tagastab kõik kattuvad read ja kõik mitte-kaatuvad read paremast tabelist
-SELECT p.EnglishProductName, s.SalesAmount
-FROM FactInternetSales s
-RIGHT JOIN DimProduct p
-ON s.ProductKey = p.ProductKey
+-- RIGHT JOIN tagastab kõik teisest tabelist read ja lisab esimesest tabelist andmed, kui vaste olemas, muidu NULL
+SELECT p.ProductID, p.Name, d.SalesOrderID
+FROM SalesLT.Product p
+RIGHT JOIN SalesLT.SalesOrderDetail d
+ON p.ProductID = d.ProductID;
 
----FULL JOIN
----Tagastab vasakust ja paremast tabelist ja kõik mitte kattuvad read
-SELECT c.FirstName, c.LastName, s.SalesAmount
-FROM DimCustomer c
-FULL OUTER JOIN FactInternetSales s
-ON c.CustomerKey = s.CustomerKey
-
----TABLE
-CREATE TABLE School
-(
-Id int primary key,
-FirstName nvarchar(50),
-LastName nvarchar(50),
-Subject nvarchar(50),
-Grade int,
-PhoneNr nvarchar(50)
-)
+-- FULL OUTER JOIN tagastab kõik read mõlemast tabelist, ühendades need, kus võimalik, ja muudes kohtades näidates NULL
+SELECT c.CustomerID, c.FirstName, sp.SalesPersonID
+FROM SalesLT.Customer c
+FULL OUTER JOIN SalesLT.SalesPerson sp
+ON c.CustomerID = sp.BusinessEntityID;
 
 insert into School(Id, FirstName, LastName, Subject, Grade, PhoneNr)
 values (1, 'Pets', 'Kuusk', 'IT', 5, '5869439'),
