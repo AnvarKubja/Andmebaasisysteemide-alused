@@ -514,3 +514,442 @@ ON E.ManagerId = M.Id
 Select E.Name as Employee, M.Name as Manager
 from dbo.Employees E
 CROSS JOIN dbo.Employees M
+
+--
+select isnull('Sinu Nimi', 'No Manager') as Manager
+
+select COALESCE(null, 'No Manager') as Manager
+
+--neil kellel ei ole ülemust, siis paneb neile No Manager teksti
+Select E.Name as Employee, isnull(M.Name, 'No Manager') as Manager
+from Employees E
+left join Employees M
+on E.ManagerId = M.Id
+
+--kui Expression on õige, siis paneb väärtuse, mida soovid või
+--vastasel juhul paneb No Manager teksti
+--case when Expression Then '' else '' end
+
+--teeme päringu, kus kasutame case-i
+--tuleb kasutada ka left join
+Select E.Name as Employee, case when M.Name is null then 'No Manager'
+else M.Name end as Manager
+from Employees E
+left join Employees M
+on E.ManagerId = M.Id
+
+--lisame tabelisse uued veerud
+alter table employees
+add MiddleName nvarchar(30)
+alter table employees
+add LastName nvarchar(30)
+
+--muudame veeru nime koodiga
+sp_rename 'Employees.MiddleName', 'Middlename1'
+select * from Employees
+
+--
+UPDATE Employees
+SET MiddleName = 'Nick', LastName = 'Jones'
+WHERE Id = 1
+UPDATE Employees
+SET LastName = 'Anderson'
+WHERE Id = 2
+UPDATE Employees
+SET LastName = 'Smith'
+WHERE Id = 4
+UPDATE Employees
+SET FirstName = NULL, Middlename = 'Todd', LastName = 'Someone'
+WHERE Id = 5
+UPDATE Employees
+SET MiddleName = 'Ten', LastName = 'Sven'
+WHERE Id = 6
+UPDATE Employees
+SET LastName = 'Connor'
+WHERE Id = 7
+UPDATE Employees
+SET MiddleName = 'Balerine'
+WHERE Id = 8
+UPDATE Employees
+SET MiddleName = '007', LastName = 'Bond'
+WHERE Id = 9
+UPDATE Employees
+SET FirstName = NULL, LastName = 'Crowe'
+WHERE Id = 10
+
+--igast reast võtab esimesena mitte nulli väärtuse ja paneb selle Name veergu
+--kasutada coalsece
+SELECT Id, COALESCE(FirstName, MiddleName, LastName) As Name
+from Employees
+
+create table IndianCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+create table UKCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+insert into IndianCustomers (Name, Email)
+values ('Raj', 'R@R.com'),
+('Sam', 'S@S.com')
+
+insert into UKCustomers (Name, Email)
+values ('Ben', 'B@B.com'),
+('Sam', 'S@S.com')
+
+SELECT * from IndianCustomers
+SELECT * from UKCustomers
+
+--kasutate union all
+--kahe tabeli andmete vaatamiseks
+--näitab kõik read mõlemast tabelist
+SELECT Id, Name, Email FROM IndianCustomers
+UNION ALL
+SELECT Id, Name, Email FROM UKCustomers
+
+--korduvate väärtuste eemaldamiseks kasutame unionit
+SELECT Id, Name, Email FROM IndianCustomers
+UNION
+SELECT Id, Name, Email FROM UKCustomers
+
+--kuidas tulemust sorteerida nime järgi
+--kasutada union all-i
+SELECT Id, Name, Email FROM IndianCustomers
+UNION ALL
+SELECT Id, Name, Email FROM UKCustomers
+ORDER BY Name
+
+--stored procedure
+--salvestatud protseduurid on SQL-i koodid, mis on salvestatud
+--andmebaasis ja mida saab käivitada,
+--et teha mingi kindel töö ära
+create procedure spGetEmployees
+as begin
+	select FirstName, Gender from Employees
+end
+
+--nüüd saame kasutada spGetEmployees-i
+spGetEmployees
+exec spGetEmployees
+execute spGetEmployees
+
+--
+create proc spGetEmployeesByGenderAndDepartment
+@Gender nvarchar(10),
+@DepartmentId int
+as begin
+	select FirstName, Gender, DepartmentId from Employees 
+	where Gender = @Gender and DepartmentId = @DepartmentId 
+end
+
+--miks annab veateate
+spGetEmployeesByGenderAndDepartment
+--õige variant
+exec spGetEmployeesByGenderAndDepartment 'Male', 1
+--kuidas minna sp järjekorrast mööda
+exec spGetEmployeesByGenderAndDepartment @DepartmentId = 1, @Gender = 'Male'
+
+sp_helptext spGetEmployeesByGenderAndDepartment
+
+--muudame sp-d ja võti peale, et keegi teine peale teie ei saaks seda muuta
+alter proc spGetEmployeesByGenderAndDepartment
+@Gender nvarchar(10),
+@DepartmentId int
+with encryption --paneb võtme peale
+as begin
+	select FirstName, Gender, DepartmentId from Employees
+	where Gender = @Gender and DepartmentId = @DepartmentId
+end
+
+--
+create proc spGetEmployeeCountByGender
+@Gender nvarchar(10),
+--output on parameeter, mis võimaldab meil salvestada protseduuri
+--sees tehtud arvutuse tulemuse ja kasutada seda väljaspool protseduuri
+@EmployeeCount int output
+as begin
+	select @EmployeeCount = count(id) from Employees
+	where Gender = @Gender
+end
+
+--annab tulemuse, kus loendab ära vastavad read
+--prindib tulemuse, mis on parameetris @EmployeeCount
+declare @TotalCount int
+exec spGetEmployeeCountByGender 'Male', @TotalCount out
+if(@TotalCount = 0)
+	print '@TotalCount is null'
+else
+	print '@TotalCount is not null'
+print @TotalCount
+
+--näitab ära, et mitu rida vastab nõuetele
+declare @TotalCount int
+exec spGetEmployeeCountByGender @EmployeeCount = @TotalCount out, @Gender = 'Male'
+print @TotalCount
+
+--sp sisu vaatamine
+sp_help spGetEmployeeCountByGender
+--tabeli info
+sp_help Employees
+--kui soovid sp teksti näha
+sp_helptext spGetEmployeeCountByGender
+
+--vaatame, millest sõltub see sp
+sp_depends spGetEmployeeCountByGender
+--vaatame tabelit sp_depends-ga
+sp_depends Employees
+
+---
+create proc spGetNameById
+@Id int,
+@Name nvarchar(30) output
+as begin
+	select @Id = Id, @Name = FirstName from Employees
+end
+
+--tahame näha kogu tabelite ridade arvu
+--count kasutada
+create proc spTotalCount2
+@TotalCount int output
+as begin
+	select @TotalCount = count(Id) from Employees
+end
+
+--saame teada, et mitu rida on tabelis
+declare @TotalEmployees int
+execute spTotalCount2 @TotalEmployees output
+select @TotalEmployees
+
+--mis id all on keegi nime järgi
+create proc spGetIdByName1
+@Id int,
+@FirstName nvarchar(30) output
+as begin
+	select @FirstName = FirstName from Employees where @Id = Id
+end
+
+--annab tulemuse, kus id 1 real on keegi koos nimega 
+declare @FirstName nvarchar(30)
+exec spGetIdByName1 9, @FirstName output
+print 'Name of the employee = ' + @FirstName
+
+---ei anna tulemust, sest sp-s on loogika viga
+/* sp-s on viga sest @id on peremeeter, mis on mõeldud selleks, et me saaksime sisestada id-d
+ja saada nime- aga sp-s on loogika viga, sest see üritab määrata @Id väärtuseks Id veeru väärtust,
+mis on vale */
+declare @FirstName nvarchar(30)
+exec spGetNameById 1, @FirstName output
+print 'Name of the employee = ' + @FirstName
+
+--tund 5
+--07.04.26
+declare @FirstName nvarchar(30)
+exec spGetNameById 1, @FirstName out
+print 'Name of the employee = ' + @FirstName
+
+sp_help spGetNameById
+
+
+create proc spGetNameById2
+@Id int
+as begin
+	return (select FirstName from Employees where Id = @Id)
+end
+
+--------------------------------------------------------------
+ALTER PROCEDURE spGetNameById2
+    @Id INT,
+    @EmployeeName NVARCHAR(30) OUTPUT
+AS
+BEGIN
+    SELECT @EmployeeName = FirstName
+    FROM Employees
+    WHERE Id = @Id
+END
+
+DECLARE @FirstName NVARCHAR(30)
+EXEC spGetNameById2 
+    @Id = 3,
+    @EmployeeName = @FirstName OUTPUT
+
+PRINT 'Name of the employee = ' + @FirstName
+
+--sisseehitatud string funktsioonid
+--see konverteerib ASCII tähe väärtuse numbriks
+select ascii('A')
+-- kuvab A-tähe
+select char(65)
+
+--prindime kogu tähestiku välja A-st Z-ni
+--kasutame while tsüklit
+declare @Start int
+set @Start = 65
+while @Start <= ASCII('Z')
+begin
+	print char(@Start)
+	set @Start = @Start + 1
+end
+
+--eemaldame tühjad kohad sulgudes
+select ltrim('                    Hello')
+
+--tühikute eemaldamine sõnas
+select ltrim(FirstName) as FirstName, MiddleName, LastName
+from Employees
+
+select rtrim('          Hello          ')
+
+--keera kooloni sees olevad andmed vastupidiseks
+--vastavalt upper ja lower-ga saan muuta märkide suurust
+--reverse funktsioon keerab stringi tagurpidi
+select reverse(upper(ltrim(Firstname))) as FirstName,
+MiddleName, lower(LastName), rtrim(ltrim(FirstName)) + ' ' +
+MiddleName + ' ' + LastName as FullName
+from Employees
+
+--left, right, substring
+--left võtab stringi vasakult poolt neli esimest tähte
+select left('ABCDEF', 4)
+--right võtab stringi paremalt poolt neli esimest tähte
+select right('ABCDEF', 4)
+
+--kuvab @tähemärgi asetust
+select CHARINDEX('@', 'sara@aaa.com')
+
+--alates viiendast tähemärgist võtab kaks tähte
+select substring('leo@bbb.com', 5, 2)
+
+--@-märgist kuvab kolm tähemärki. Viimase nr saab
+--määrata pikkust
+select substring('leo@bbb.com', CHARINDEX('@', 'leo@bbb.com')
++ 1, 3)
+
+--peale @-märki reguleerin tähemärkide pikkuse näitamist
+select SUBSTRING('leo@bbb.com', CHARINDEX('@', 'leo@bbb.com') + 2,
+len('leo@bbb.com') - charindex('@', 'leo@bbb.com'))
+
+--saame teada domeeninimed emailides
+--kasutame person tabelit ja substringi, len ja charindexi
+select SUBSTRING(Email, charindex('@', Email) + 1,
+len(Email) - charindex('@', Email)) as DomainName
+from Person
+
+alter table Employees
+add Email nvarchar(20)
+
+UPDATE Employees
+SET Email = 'Tom@aaa.com'
+WHERE Id = 1
+UPDATE Employees
+SET Email = 'Pam@bbb.com'
+WHERE Id = 2
+UPDATE Employees
+SET Email = 'John@aaa.com'
+WHERE Id = 3
+UPDATE Employees
+SET Email = 'Sam@bbb.com'
+WHERE Id = 4
+UPDATE Employees
+SET Email = 'Todd@bbb.com'
+WHERE Id = 5
+UPDATE Employees
+SET Email = 'Ben@ccc.com'
+WHERE Id = 6
+UPDATE Employees
+SET Email = 'Sara@ccc.com'
+WHERE Id = 7
+UPDATE Employees
+SET Email = 'Valarie@aaa.com'
+WHERE Id = 8
+UPDATE Employees
+SET Email = 'James@bbb.com'
+WHERE Id = 9
+UPDATE Employees
+SET Email = 'Russel@bbb.com'
+WHERE Id = 10
+
+
+--lisame *-märgi alates teatud kohast
+select FirstName, LastName,
+	substring(Email, 1, 2) + replicate('*', 5) +
+	--peale teist tähemärki paneb viis tärni
+	substring(Email, charindex('@', Email), len(Email)
+	- charindex('@', Email) + 1) as MaskedEmail
+	--kuni @-märgini paneb tärnid ja siis jätkab emaili näitamist
+	--on dünaamiline, sest kui emaili pikkus on erinev,
+	--siis paneb vastavalt tärne
+from Employees
+
+--kolm korda näitab stringis olevat väärtust
+select REPLICATE('Hello', 3)
+
+--kuidas sisestada tühikut kahe nime vahele
+--kasutada funktsiooni
+select SPACE(5)
+
+--võtame tabeli Employees ja kuvame eesnime ja perekonnanime vahele tühikut
+select FirstName + space(25) + LastName as FullName from Employees
+
+--PATINDEX
+--sama, mis charindex aga patindex võimaldab kasutada wildcardi
+--kasutame tabelit Employees ja leiame kõik read, kus emaili lõpus on aaa.com
+select Email, PATINDEX('%aaa.com', Email) as Position
+from Employees
+where PATINDEX('%aaa.com', Email) > 0
+--leiame kõik read, kus emaili lõpus on aaa.com või bbb.com
+
+--asendame emaili lõpus olevat domeeninimed
+--.com asemel .net-iga
+select FirstName, LastName, Email, 
+replace(Email, '.com', '.net') as NewEmail
+from Employees
+
+--soovin asendada peale esimest märki olevad tähed viie tärniga
+Select FirstName, LastName, Email,
+	STUFF(Email, 2, 3, '*****') as StuffedEmail
+from Employees
+
+--ajaga seotud andmetüübid
+create table DateTest
+(
+c_time time,
+c_date date,
+c_smalldatetime smalldatetime,
+c_datetime datetime,
+c_datetime2 datetime2,
+c_datetimeoffset datetimeoffset
+)
+
+select * from DateTest
+
+--sinu masina kellaaeg
+select getdate() as currentDateTime
+
+insert into DateTest
+values (getdate(), getdate(), getdate(), getdate(), getdate(), getdate())
+
+update DateTest set c_datetimeoffset = '2026-04-07 12:00:08.3766667 +02:00'
+where c_datetimeoffset = '2026-04-07 17:13:08.3766667 +00:00'
+
+select CURRENT_TIMESTAMP, 'CURRENT_TIMESTAMP' --aja päring
+select SYSDATETIME(), 'SYSDATETIME' --veel täpsem aja päring
+select SYSDATETIMEOFFSET(), 'SYSDATETIMEOFFSET' --täpne aja ja ajavööndi päring
+select GETUTCDATE(), 'GETUTCDATE' --UTC aja päring
+
+select ISDATE('asdasd') --tagastab 0, sest see ei ole kehtiv kuupäev
+select ISDATE(getdate()) --tagastab 1, sest on kuupäev
+select isdate('2026-04-07 17:13:08.3766667') --tagastab 0 kuna max kolm komakohta võib olla
+select isdate('2026-04-07 17:13:08.376') --tagastab 1
+select day(getdate()) --annab tänase päeva numbri
+select day('01/30/2026') --annab stringis oleva kp ja järjestus peab olema õige
+select month(getdate()) -- annab jooksva kuu nr
+select month('01/30/2026') -- annab stringis oleva kuu
+select year(getdate()) -- annab jooksva aasta nr 
+select year('01/30/2022') -- annab stringis oleva aasta nr
