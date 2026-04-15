@@ -22,10 +22,10 @@ RIGHT JOIN SalesLT.SalesOrderDetail d
 ON p.ProductID = d.ProductID;
 
 -- FULL OUTER JOIN tagastab kõik read mõlemast tabelist, ühendades need, kus võimalik, ja muudes kohtades näidates NULL
-SELECT c.CustomerID, c.FirstName, sp.SalesPersonID
+SELECT c.CustomerID, c.FirstName, ca.AddressID
 FROM SalesLT.Customer c
-FULL OUTER JOIN SalesLT.SalesPerson sp
-ON c.CustomerID = sp.BusinessEntityID;
+FULL OUTER JOIN SalesLT.CustomerAddress ca
+ON c.CustomerID = ca.CustomerID
 
 insert into School(Id, FirstName, LastName, Subject, Grade, PhoneNr)
 values (1, 'Pets', 'Kuusk', 'IT', 5, '5869439'),
