@@ -2317,3 +2317,373 @@ order by Name
 
 --subqueryt saab subquery sisse panna
 --subqueryd on alati sulgudes ja neid nimetatakse sisemisteks päringuteks
+
+--19.05.26
+--rohkete andmetega testimise tabel
+truncate table Product
+truncate table ProductSales
+
+create table Product
+(
+Id int identity primary key,
+Name nvarchar(50),
+Description nvarchar(250)
+)
+
+create table ProductSales
+(
+Id int primary key identity,
+ProductId int foreign key references Product(Id),
+UnitPrice int,
+QuantitySold int
+)
+
+-- sisestame näidisandmed Product tabelisse
+declare @Id int
+set @Id = 1
+while(@Id <= 3000000)
+begin
+	insert into Product
+	values('Product ' + cast(@Id as nvarchar(20)),
+	'Description for product ' + cast(@Id as nvarchar(20)))
+	print @Id 
+	set @Id = @Id + 1
+end
+
+declare @RandomProductId int
+declare @RandomUnitPrice int
+declare @RandomQuantitySold int
+
+--ProductId
+declare @LowerLimitForProductId int
+declare @UpperLimitForProductId int
+
+set @LowerLimitForProductId = 1
+set @UpperLimitForProductId = 3000
+
+
+--UnitPrice
+declare @LowerLimitForUnitPrice int
+declare @UpperLimitForUnitPrice int
+
+set @LowerLimitForUnitPrice = 1
+set @UpperLimitForUnitPrice = 3000
+
+--QuantitySold
+declare @LowerLimitForQuantitySold int
+declare @UpperLimitForQuantitySold int
+
+set @LowerLimitForQuantitySold = 1
+set @UpperLimitForQuantitySold = 100
+
+declare @Counter int
+set @Counter = 1
+
+while (@Counter <= 900000)
+begin
+	set @RandomProductId = round(((@UpperLimitForProductId -
+	@LowerLimitForProductId) * rand() + @LowerLimitForProductId), 0)
+
+	set @RandomUnitPrice = round(((@UpperLimitForUnitPrice - 
+	@LowerLimitForUnitPrice) * rand() + @LowerLimitForUnitPrice), 0)
+
+	set @RandomQuantitySold = round(((@UpperLimitForQuantitySold - 
+	@LowerLimitForQuantitySold) * rand() + @LowerLimitForQuantitySold), 0)
+
+	insert into ProductSales
+	values(@RandomProductId, @RandomUnitPrice, @RandomQuantitySold)
+
+	print @Counter
+	set @Counter = @Counter + 1
+end
+
+select * from Product
+select * from ProductSales
+
+--võrdleme subquery ja joini jõudlust
+Select Id, Name, Description
+from Product
+where Id in (select Product.Id from ProductSales)
+-- 3 miljonit rida 13 sekundiga
+
+--teeme cache puhtaks, et uut päringut ei oleks kuskile vahemällu salvestatud
+checkpoint;
+go
+dbcc DropCleanBuffers; --puhastab päringu cache-i
+go
+dbcc FreeProcCache; --puhastab protseduuride cache-i
+go
+
+-- teha sama tabeliga, aga join-iga
+select distinct ps.Id, Name, Description
+from Product p
+join ProductSales ps
+on p.Id = ps.ProductId
+--900000 rida 5 sekundiga
+
+select Id, Name, Description
+from Product
+where not exists
+(
+select * from ProductSales where ProductId = Product.Id
+)
+--3M rida 16 sek
+
+--kasutame join-i
+--left join ja where Product.ProductId is null
+select p.Id, Name, Description
+from Product p
+left join ProductSales ps
+on p.Id = ps.ProductId
+where ps.ProductId is null
+--16 sek
+
+--CURSOR
+--relatsiooniliste DB-de haldussüsteemid saavad väga hästi hakkama
+--SETS-ga. SETS lubab mitut päringut kombineerida üheks tulemuseks. 
+-- Sinna alla käivad UNION, INTERSECT ja EXCEPT
+
+update ProductSales set UnitPrice = 50
+where ProductSales.ProductId = 101
+
+--kui on vaja rea kaupa andmeid töödelda, siis kõige parem oleks kasutada
+-- cursoreid. Samas on need jõudlusele halvad ja võimalusi vältida.
+-- soovitav oleks kasutada join-i
+
+--cursorid jagunevad omakorda neljaks:
+--1. Forward-Only e edasi-ainult
+--2. Static e staatilised
+--3. Keyset e võtmele seadistatud
+--4. Dyanmic e dünaamiline
+
+--näide
+declare @ProductId int
+--deklareerime cursori
+declare ProductIdCursor cursor for
+select ProductId from ProductSales
+-- open avaldusega täidab select avaldust
+-- ja sisestab tulemuse
+open ProductIdCursor
+
+fetch next from ProductIdCursor into @ProductId
+--kui tulemus on veel ridu, siis @@FETCH_STATUS on 0
+while(@@FETCH_STATUS = 0)
+begin
+	declare @ProductName nvarchar(50)
+	select @ProductName = Name from Product where Id = @ProductId
+	if (@ProductName = 'Product 999')
+	begin
+		update ProductSales set UnitPrice = 999 where ProductId = @ProductId
+	end
+
+	else if(@ProductName = 'Product 888')
+	begin
+		Update ProductSales set UnitPrice = 888 where ProductId = @ProductId
+	end
+
+	else if(@ProductName = 'Product 777')
+	begin
+		Update ProductSales set UnitPrice = 777 where ProductId = @ProductId
+	end
+
+	fetch next from ProductIdCursor into @ProductId
+end
+--vabastab rea seadistuse e suleb cursori
+close ProductIdCursor
+--vabastab ressursid, mis on seotud cursoriga
+deallocate ProductIdCursor
+
+select * from Product
+
+--vaatame, kas read on uuendatud
+--kasutage join ja where
+select Name, UnitPrice
+from Product p
+join ProductSales ps
+on p.Id = ps.ProductId
+where p.Name in ('Product 999', 'Product 888', 'Product 777')
+
+
+-- asendame cursori joiniga
+--tuleb kasutada case ja lihtsalt join-i
+update ProductSales
+set UnitPrice =
+	case
+		when Name = 'Product 777' then 1777
+		when Name = 'Product 888' then 1888
+		when Name = 'Product 999' then 1999
+	end
+from ProductSales
+join Product
+on Product.Id = ProductSales.ProductId
+where Name = 'Product 777' or Name = 'Product 888' or Name = 'Product 999'
+
+--tabelite info
+--nimekiri tabelitest
+select * from sysobjects where xType = 'S'
+
+select * from sys.tables
+--nimekiri tabelitest ja view-st
+select * from INFORMATION_SCHEMA.TABLES
+
+--kui soovid erinevaid objektitüüpe vaadata, siis kasutda XTYPE süntaksit
+select distinct XTYPE from sysobjects
+
+-- IT - internal table
+-- P - stored procedure
+-- PK - primary key constraint
+-- S - system table
+-- SQ - service queue
+-- U - user table
+-- V - view
+
+--annab teada, ka sellise nimega tabel on juba olemas
+if not exists (select * from INFORMATION_SCHEMA.TABLES where TABLE_NAME = 'Employee')
+begin
+	create table Employee
+	(
+	Id int primary key,
+	Name nvarchar(30),
+	ManagerId int
+	)
+		print 'Table created'
+end
+	else
+begin
+		print 'Table Employee already exists'
+end
+
+--saab kasutada ka sisseehitatud funktsiooni: OBJECT_ID()
+if OBJECT_ID('Employee') is null
+begin
+	print 'Table created'
+end
+else
+begin
+	print 'Table already exists'
+end
+
+--tahame Employee nimega tabeli ära kustutada ja siis uuesti luua
+--kasutame OBJECT_ID-d
+if OBJECT_ID('Employee') is not null
+begin
+	drop table Employee
+
+	create table Employee
+	(
+	EmployeeId int primary key,
+	Name nvarchar(30),
+	ManagerId int
+	)
+end
+else
+begin
+	print 'Table not found'
+end
+
+--kui teha uuesti käivitatavaks veeru kontrollimist ja loomist
+if not exists(select * from INFORMATION_SCHEMA.COLUMNS where
+COLUMN_NAME = 'Email' and TABLE_NAME = 'Employee' and TABLE_SCHEMA = 'dbo')
+begin
+	alter table Employee
+	add Email nvarchar(50)
+end
+else
+begin
+	print 'Column already exists'
+end
+
+--kontrollime, kas mingi nimega veerg on olemas???
+-- kasutame COL_LENGTH
+-- Kontrollime, kas tabelis 'Employee' on olemas veerg 'Email'
+if COL_LENGTH('dbo.Employee', 'Email') is not null
+begin
+    print 'Column already exists'
+end
+else
+begin
+    print 'Column does not exist'
+end
+
+--MERGE
+--merge puhul peab alati olema vähemalt kaks tabelit:
+--1. algallika tabel e source table
+--2. sihtmärk tabel e target table
+
+--ühendab sihttabeli lähtetabeliga ja kasutab mõlemas tabelis ühist veergu
+--koodinäide
+merge [TARGET] as T
+using [SOURCE] as S
+	on [JOIN_CONDITIONS]
+when matched then
+	[UPDATE_STATEMENT]
+when not matched by target then
+	[INSERT_STATEMENT]
+when not matched by source then
+	[DELETE STATEMENT]
+
+
+
+create table StudentSource
+(
+Id int primary key,
+Name nvarchar(20)
+)
+go
+insert into StudentSource values
+(1, 'Mike'),
+(2, 'Sara')
+go
+
+create table StudentTarget
+(
+Id int primary key,
+Name nvarchar(20)
+)
+go
+insert into StudentTarget values
+(1, 'Mike M'),
+(2, 'John')
+
+select * from StudentTarget
+select * from StudentSource
+
+--1. kui leitakse klappiv rida, siis StudentTarget tabel on uuendatud
+--2. kui read on StudentSource tabelis olemas, aga neid ei ole StudentTarget-s,
+--siis puuduolevad read asendatakse
+--3. kui read on olemas StudentTarget-s, aga mitte StudentSource-s, siis StudentTarget
+--tabelis read kustutatakse ära
+-- vaja teha merge
+merge StudentTarget as T
+using StudentSource as S
+	on T.Id = S.Id
+when matched then
+	update set T.Name = S.Name
+when not matched by target then
+	insert (Id, Name)
+	values (S.Id, S.Name)
+when not matched by source then
+	delete;
+
+
+truncate table StudentTarget
+truncate table StudentSource
+
+merge StudentTarget as T
+using StudentSource as S
+	on T.Id = S.Id
+when matched then
+	update set T.Name = S.Name
+when not matched by target then
+	insert (Id, Name)
+	values (S.Id, S.Name)
+go
+
+select * from StudentTarget
+select * from StudentSource
+
+--transaction-d
+-- mis see on?
+-- on rühm käske, mis kuudavad DB-s salvestatuid andmeid. Tehingut käsitletakse
+-- ühe tööüksusena. Kas kõik käsud õnnestuvad või mitte. Kui üks tehing sellest ebaõnnestub
+-- siis kõik juba muudetud andmed muudetakse tagasi
