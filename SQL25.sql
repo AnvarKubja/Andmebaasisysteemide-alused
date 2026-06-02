@@ -2687,3 +2687,617 @@ select * from StudentSource
 -- on rühm käske, mis kuudavad DB-s salvestatuid andmeid. Tehingut käsitletakse
 -- ühe tööüksusena. Kas kõik käsud õnnestuvad või mitte. Kui üks tehing sellest ebaõnnestub
 -- siis kõik juba muudetud andmed muudetakse tagasi
+
+--02.06
+
+create table Account
+(
+Id int primary key,
+AccountName nvarchar(25),
+Balance int
+)
+
+insert into Account
+values 
+(1, 'Mark', 1000),
+(2, 'Mary', 2000)
+
+-- transactioni näide, et mõlemad uuendatavad read peavad õnnestuma, et muudatused jääksid kehtima
+begin try
+	begin transaction
+		update Account set Balance = Balance - 100 where Id = 1
+		update Account set Balance = Balance + 100 where Id = 2
+	commit transaction
+	print 'Transaction completed successfully'
+end try
+begin catch
+	rollback transaction
+	print 'Transaction failed'
+end catch
+go
+select * from Account
+
+
+-- iseseisev töö
+-- 1.
+create function GetAllCustomers_ITVF()
+returns table
+as
+return
+(
+	select * from SalesLT.Customer
+)
+
+select * from GetAllCustomers_ITVF()
+
+
+-- 2.
+create function GetCustomerByID_ITVF(@CustomerID int)
+returns table
+as
+return
+(
+	select FirstName, LastName
+	from SalesLT.Customer
+	where CustomerId = @CustomerId
+)
+
+select * from GetCustomerByID_ITVF(1)
+
+
+-- 3.
+create function GetOrdersByCustomer_ITVF(@CustomerID int)
+returns table
+as
+return
+(
+	select * from SalesLT.SalesOrderHeader
+	where CustomerID = @CustomerID
+)
+
+select * from GetOrdersByCustomer_ITVF(29847)
+
+
+-- 4.
+create function GetProductsByPrice_ITVF(@MinPrice int, @MaxPrice int)
+returns table
+as
+return
+(
+	select * from SalesLT.Product
+	where ListPrice between @MinPrice and @MaxPrice
+)
+
+select * from GetProductsByPrice_ITVF(213, 345)
+
+
+-- 5.
+create function GetTopExpensiveProducts_ITVF()
+returns table
+as
+return
+(
+	select top 10 * from SalesLT.Product
+	order by ListPrice desc
+)
+
+select * from GetTopExpensiveProducts_ITVF()
+
+
+-- 6.
+create function GetCustomerFullInfo_MSTVF(@CustomerID int)
+returns @Result table
+(
+	FullName nvarchar(50),
+	EmailAddress nvarchar(50),
+	Phone nvarchar(25)
+)
+as begin
+	insert into @Result
+	select 
+		FirstName + ' ' + LastName as FullName,
+		EmailAddress,
+		Phone
+	from SalesLT.Customer
+	where CustomerID = @CustomerID
+
+	return
+end
+
+select * from GetCustomerByID_ITVF(1)
+
+
+-- 7.
+create function GetCustomerOrderSummary_MSTVF(@CustomerID int)
+returns @Result table
+(
+	OrderCount int,
+	TotalAmount int
+)
+as begin
+	insert into @Result
+	select
+		count(*) as OrderCount,
+		sum(TotalDue) as TotalAmount
+	from SalesLT.SalesOrderHeader
+	where CustomerID = @CustomerID
+
+	return
+end
+
+select * from GetCustomerOrderSummary_MSTVF(1)
+
+
+-- 8.
+create function GetProductPriceCategory_MSTVF()
+returns @Result table
+(
+	ProductID int,
+	ProductName nvarchar(50),
+	ListPrice int,
+	PriceCatergory nvarchar(20)
+)
+as begin
+	insert into @Result
+	select
+		ProductID,
+		Name,
+		ListPrice,
+		case
+			when ListPrice < 500 then 'Odav'
+			when ListPrice between 500 and 1500 then 'Keskmine'
+			else 'Kallis'
+		end as PriceCategory
+		from SalesLT.Product
+	return
+end
+
+select * from GetProductPriceCategory_MSTVF()
+
+
+-- 9.
+create function GetCustomersWithOrders_MSTVF()
+returns @Result table
+(
+	CustomerID int,
+	FullName nvarchar(100)
+)
+as begin
+	insert into @Result
+	select distinct
+		c.CustomerID,
+		c.FirstName + ' ' + c.LastName as FullName
+	from SalesLT.Customer c
+	inner join SalesLT.SalesOrderHeader soh
+	on c.CustomerID = soh.CustomerID
+
+	return
+end
+
+select * from GetCustomersWithOrders_MSTVF()
+
+
+-- 10.
+create function GetTopCustomersBySpending_MSTVF()
+returns @Result table
+(
+    FullName nvarchar(200),
+    TotalSpent int
+)
+as begin
+    insert into @Result
+    select top 5
+        c.FirstName + ' ' + c.LastName as FullName,
+        sum(soh.TotalDue) as TotalSpent
+    from SalesLT.Customer c
+    inner join SalesLT.SalesOrderHeader soh
+        on c.CustomerID = soh.CustomerID
+    group by
+        c.CustomerID,
+        c.FirstName,
+        c.LastName
+    order by
+        TotalSpent desc
+
+    return
+end
+
+select * from GetTopCustomersBySpending_MSTVF()
+
+
+-- mõned levinumad probleemid
+-- 1. Dirty read e must lugemine
+-- 2. Lost Updates e kadunud uuendused
+-- 3. Nonrepeatable reads e kordumatud lugemised
+-- 4. Phantom read e fantoom lugemine
+
+-- kõik eelnevad probleemid lahendaks ära, kui lubaksite igal ajal
+-- korraga ühel kasutajal ühe tehingu teha. Selle tulemusel kõik tehingud
+-- satuvad järjekorda ja neil võib tekkida vajadus kaua oodata, enne,
+-- kui võimalus tehingut teha saabub.
+
+-
+-
+/*
+kui lubada samaaegselt kõik tehingud ära teha, siis see omakorda tekitab probleeme
+Probleemi lahendamiseks pakub MSSQL server erinevaid tehinguisolatsiooni tasemeid,
+et tasakaalustada samaaegsete andmete CRUD (create, read, update ja delete) probleeme:
+1. read uncommited e lugemine ei ole teostatud
+2. read commited e lugemine tehtud
+3. repeatable read e korduv lugemine
+4. snapshot e kuvatõmmis
+5. serializable e serialiseerimine
+
+igale juhtumile tuleb läheneda juhtumipõhiselt ja
+mida vähem valet lugemist tuleb, seda aeglasem
+*/
+
+-- dirty read näide
+create table Inventory
+(
+Id int identity primary key,
+Product nvarchar(100),
+ItemsInStock int
+)
+go
+insert into Inventory values
+('TV', 10)
+select * from Inventory
+
+-- 1. käsklus
+-- 1 transaction
+begin transaction
+update Inventory set ItemsInStock = 9 where Id = 1
+--klientidele tuleb arve
+waitfor delay '00:00:15'
+-- ebapiisav saldojääk ja teeb rollbacki
+rollback transaction 
+	
+-- 2. käsklus
+-- samal ajal tegin uue päringu akna,
+-- kus kohe peale esimest käsklust käivitan teise
+-- 2 transaction
+set tran isolation level read uncommitted
+select * from Inventory where Id = 1
+
+-- 3. käsklus
+-- nüüd panen selle käskluse tööle
+-- käivita, kui käsklus 1 on möödas
+select * from Inventory (nolock) where Id = 1
+
+--muutsin esimese käsuga 9 TV peale,
+-- aga ikka on 10 TV-d
+
+
+-- lost update e kadunud uuendused
+-- 1 transaction
+-- 1 käsklus
+begin tran
+declare @ItemsInStock int
+
+select @ItemsInStock = @ItemsInStock
+from Inventory where Id = 1
+
+waitfor delay '00:00:15'
+set @ItemsInStock = @ItemsInStock - 1
+
+update Inventory
+set ItemsInStock = @ItemsInStock
+where Id = 1
+
+print @ItemsInStock
+commit tran
+
+-- 2 transaction
+-- 2 käsklus
+set tran isolation level repeatable read
+begin tran
+declare @ItemsInStock int
+
+select @ItemsInStock = ItemsInStock
+from Inventory where Id = 1
+
+waitfor delay '00:00:01'
+set @ItemsInStock = @ItemsInStock - 2
+
+update Inventory
+set ItemsInStock = @ItemsInStock
+where Id = 1
+
+print @ItemsInStock
+commit tran
+
+
+-- non repeatable read näide
+
+/* 
+see juhtub, kui üks transaction loeb samu andmeid kaks korda
+ja teine transcation uuendab neid andmeid esimese ning
+teise käsu vahel esimese transcationi jooksutamise ajal
+*/
+
+-- 1 transaction
+--set tran isolation level repeatable read
+begin tran
+select ItemsInStock from Inventory where Id = 1
+
+waitfor delay '00:00:15'
+
+select ItemsInStock from Inventory where Id = 1
+commit tran
+
+-- 2 tran
+-- 2 käsklus
+update Inventory set ItemsInStock = 5
+where Id = 1
+
+select * from Inventory
+
+-- non repeatable read probleemi lahendamiseks kasutatakse
+-- tran 1 ees:
+-- set tran isolation level repeatable read
+
+
+-- phantom read e fantoom lugemine
+
+create table Employee
+(
+Id int primary key,
+Name nvarchar(30)
+)
+
+insert into Employee values
+(1, 'Makr'),
+(2, 'Sara'),
+(100, 'Mary')
+
+-- 1 transaction
+-- 1 käsklus
+set tran isolation level serializable
+
+begin tran
+select * from Employee where Id between 1 and 3
+
+waitfor delay '00:00:15'
+select * from Employee where Id between 1 and 3
+commit tran
+
+-- 2 käsklus
+insert into Employee values
+(2, 'Marcus')
+
+/*
+vastuseks tuleb: Mark ja Sara. Marcust ei näita, aga peaks
+
+erinevus korduvlugemisega ja serialiseerimisega
+korduv lugemine hoiab ära ainult kordumatud lugemised
+serialiseerimine hoiab ära kordumatud lugemised ja
+phantom read probleemid
+isolatsioonitase tagab, et ühe tehingu loetud andmed ei
+takistaks muid transactioneid
+*/
+
+--deadlock
+create table TableA
+(
+Id int identity primary key,
+Name nvarchar(20)
+)
+go
+insert into TableA values('Mark')
+go
+create table TableB
+(
+Id int identity primary key,
+Name nvarchar(20)
+)
+go
+insert into TableB values('Mary')
+
+-- transaction 1
+-- samm nr 1
+begin tran
+update TableA set Name = 'Mark Transaction 1' where Id = 1
+
+-- samm nr 3
+update TableB set Name = 'Mary Transaction 3' where Id = 1
+commit tran
+
+-- teine server
+-- samm nr 2
+begin tran 
+update TableA set Name = 'Mark Transaction 2' where Id = 1
+
+-- samm nr 4
+update TableB set Name = 'Mary Transaction 2' where Id = 1 
+commit tran
+
+select * from TableA
+select * from TableB
+
+/*
+Kuidas SQL server tuvastab deadlocki?
+Lukustatakse serveri lõim, mis töötab vaikimisi iga 5 sek järel
+et tuvastada ummikuid. Kui leiab deadlocki, siis langeb
+deadlocki intervall 5 sek-lt 100 millisekundini.
+
+mis juhtub deadlocki tuvastamisel
+Tuvastamisel lõpetab DB-mootor deadlocki ja valib ühe lõime ohvriks.
+Seejärel keeratakse deadlockiohvri tehing tagasi ja
+tagastatakse rakendusele viga 1205. Ohvri tehingu tagasitõmbamine
+vabastab kõik selle transactioni valduses olevad lukud.
+See võimaldab teistel transactionitel blokeringut tühistada ja
+edasi liikuda.
+
+mis on DEADLOCK_PRIORITY
+vaikimisi valib SQL server deadlockiohvri tehingu, mille
+tagasivõtmine on kõige odavam (võtab vähem ressurssi). Seanside
+prioriteeti saab muuta SET DEADLOCK_PRIORITY
+
+DEADLOCK_PRIORITY
+1. vaikimisi on see Normal-i peal
+2. saab seadistada LOW, NORMAL ja HIGH peale
+3. saab seadistada ka nr väärtusena -10-st kuni 10-ni
+
+ohvri valimise kriteeriumid
+1. kui prioriteedid on erinevad, siis kõige madalama tähtsusega valitakse ohvriks
+2. kui mõlemal sessioonil on sama prioriteet, siis valitakse ohvriks transaction,
+mille tagasi viimine on kõige vähem ressurssi nõudev
+3. kui mõlemal sessioonil on sama prioriteet ja sama
+ressursi kulutamine, siis ohver valitakse juhuslikkuse alusel
+*/
+truncate table TableA
+truncate table TableB
+
+insert into TableA values
+('Mark'),
+('Ben'),
+('Todd'),
+('Pam'),
+('Sara')
+insert into TableB values
+('Mary')
+
+--transaction 1
+-- samm nr 1
+begin tran
+update TableA set Name = Name + 'Transaction 1' where Id in (1, 2, 3, 4, 5)
+
+-- samm nr 3
+update TableB set Name = Name + 'Transaction 1' where Id = 1
+
+-- samm nr 5
+commit tran
+
+-- transaction 2
+-- samm nr 2
+set deadlock_priority high
+go
+begin tran
+update TableB set Name = Name + 'Transaction 1' where Id = 1
+
+--samm nr 4
+update TableA set Name = Name + 'Transaction 1' where Id in (1, 2, 3, 4, 5)
+
+--samm nr 6
+commit tran
+
+
+
+-- deadlocki logimine
+dbcc Traceon(1222, -1)
+
+dbcc TraceStatus(1222, -1)
+
+--kasutatakse, et globaalselt oleks keelatud
+dbcc Traceoff(1222, -1)
+
+create proc spTransaction1
+as begin
+	begin tran
+	update TableA set Name = 'Mark Transaction 1' where Id = 1
+	waitfor delay '00:00:05'
+	update TableB set Name = 'Mary Transaction 1' where Id = 1
+	commit tran
+end
+
+create proc spTransaction2
+as begin
+	begin tran
+	update TableA set Name = 'Mark Transaction 2' where Id = 1
+	waitfor delay '00:00:05'
+	update TableB set Name = 'Mary Transaction 2' where Id = 1
+	commit tran
+end
+
+exec spTransaction1
+exec spTransaction2
+--errorLogi kuvamine
+exec sp_readerrorlog
+
+--kuidas leida viga koodi abil
+-- selleks on meil vaja õiget objectId, aga hetkel ei ole teada
+select OBJECT_NAME([OBJECT_ID])
+from sys.partitions
+where hobt_id = 72059943124954
+-- see nr on suvaline
+
+alter proc spTransaction1
+as begin
+	begin tran
+		begin try
+		update TableA set Name = 'Mark Transaction 1' where Id = 1
+		waitfor delay '00:00:05'
+		update TableB set Name = 'Mary Transaction 1' where Id = 1
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab kas see error on deadlocki oma
+		if error_number() = 1205
+		begin 
+			select 'Deadlock Detected'
+		end
+		rollback
+	end catch
+end
+
+--muudame ka teise sp ära
+alter proc spTransaction2
+as begin
+	begin tran
+		begin try
+		update TableA set Name = 'Mark Transaction 2' where Id = 1
+		waitfor delay '00:00:05'
+		update TableB set Name = 'Mary Transaction 2' where Id = 1
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab kas see error on deadlocki oma
+		if error_number() = 1205
+		begin 
+			select 'Deadlock Detected'
+		end
+		rollback
+	end catch
+end
+
+--nüüd käivitan esimeses serveris spTransaction 1 ja 
+--teises serveris spTransaction2
+spTransaction1
+
+SELECT
+    [s_tst].[session_id],
+    [s_es].[login_name] AS [Login Name],
+    DB_NAME (s_tdt.database_id) AS [Database],
+    [s_tdt].[database_transaction_begin_time] AS [Begin Time],
+    [s_tdt].[database_transaction_log_bytes_used] AS [Log Bytes],
+    [s_tdt].[database_transaction_log_bytes_reserved] AS [Log Rsvd],
+    [s_est].text AS [Last T-SQL Text],
+    [s_eqp].[query_plan] AS [Last Plan]
+FROM
+    sys.dm_tran_database_transactions [s_tdt]
+JOIN
+    sys.dm_tran_session_transactions [s_tst]
+ON
+    [s_tst].[transaction_id] = [s_tdt].[transaction_id]
+JOIN
+    sys.[dm_exec_sessions] [s_es]
+ON
+    [s_es].[session_id] = [s_tst].[session_id]
+JOIN
+    sys.dm_exec_connections [s_ec]
+ON
+    [s_ec].[session_id] = [s_tst].[session_id]
+LEFT OUTER JOIN
+    sys.dm_exec_requests [s_er]
+ON
+    [s_er].[session_id] = [s_tst].[session_id]
+CROSS APPLY
+    sys.dm_exec_sql_text ([s_ec].[most_recent_sql_handle]) AS [s_est]
+OUTER APPLY
+    sys.dm_exec_query_plan ([s_er].[plan_handle]) AS [s_eqp]
+ORDER BY
+    [Begin Time] ASC;
+GO
